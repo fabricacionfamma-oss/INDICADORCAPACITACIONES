@@ -66,51 +66,79 @@ if archivo_subido is not None:
     tab1, tab2, tab3 = st.tabs([
         "📈 Resumen General", 
         "👤 Detalle Asistencia y Calidad", 
-        "📅 Evolución Semanal (Hojas Verdes)"
+        "📅 Evolución Semanal"
     ])
     
     # --- PESTAÑA 1: VISTA GENERAL ---
     with tab1:
         st.header("Resumen Global de Formaciones")
         
-        # --- Modificación: Gráficos de torta por cada capacitación ---
-        st.subheader("Asistencia detallada por Capacitación")
+        # Filtramos solo los registros válidos de asistencia general
         df_asis_validos = df_asis_melt[df_asis_melt['Estado'] != 'Sin Registro']
-        lista_capacitaciones = df_asis_validos['Capacitación'].unique()
+        
+        # 1. GRÁFICO GLOBAL DE ASISTENCIA (Nuevo)
+        st.subheader("Asistencia Global (Total de todas las capacitaciones)")
+        if not df_asis_validos.empty:
+            col_izq, col_cen, col_der = st.columns([1, 2, 1])
+            fig_asis_global = px.pie(
+                df_asis_validos, 
+                names='Estado', 
+                hole=0.3,
+                color='Estado',
+                color_discrete_map={'Presente': '#00CC96', 'Ausente / Falta': '#EF553B'}
+            )
+            col_cen.plotly_chart(fig_asis_global, use_container_width=True)
+        else:
+            st.info("No hay registros suficientes para calcular la asistencia global.")
+        
+        st.divider()
+        
+        # 2. GRÁFICOS DETALLADOS POR CAPACITACIÓN
+        st.subheader("Asistencia detallada por Capacitación")
+        
+        # Identificamos TODAS las capacitaciones
+        todas_las_capacitaciones = df_asis_melt['Capacitación'].unique()
+        capacitaciones_con_datos = df_asis_validos['Capacitación'].unique()
+        
+        # Las que no tienen ningún dato las guardamos en una lista aparte
+        capacitaciones_pendientes = [cap for cap in todas_las_capacitaciones if cap not in capacitaciones_con_datos]
         
         # Creamos 3 columnas para organizar las tortas en forma de grilla
         cols_torta = st.columns(3)
         
-        for i, cap in enumerate(lista_capacitaciones):
+        # Graficamos SOLO las que tienen datos
+        for i, cap in enumerate(capacitaciones_con_datos):
             df_cap = df_asis_validos[df_asis_validos['Capacitación'] == cap]
             
-            # Graficar solo si hay datos para esa capacitación
-            if not df_cap.empty:
-                fig_torta = px.pie(
-                    df_cap, 
-                    names='Estado', 
-                    title=f"Asistencia: {cap}",
-                    hole=0.3,
-                    color='Estado',
-                    color_discrete_map={'Presente': '#00CC96', 'Ausente / Falta': '#EF553B'}
-                )
-                
-                # Ajustar el diseño para que se vea limpio en tamaño pequeño
-                fig_torta.update_layout(
-                    showlegend=True, 
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-                    title_x=0.5, 
-                    title_font_size=14
-                )
-                
-                # Asignar cada gráfico a una columna en secuencia
-                cols_torta[i % 3].plotly_chart(fig_torta, use_container_width=True)
+            fig_torta = px.pie(
+                df_cap, 
+                names='Estado', 
+                title=f"{cap}",
+                hole=0.3,
+                color='Estado',
+                color_discrete_map={'Presente': '#00CC96', 'Ausente / Falta': '#EF553B'}
+            )
+            
+            fig_torta.update_layout(
+                showlegend=True, 
+                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                title_x=0.5, 
+                title_font_size=14
+            )
+            
+            cols_torta[i % 3].plotly_chart(fig_torta, use_container_width=True)
+            
+        # Mostramos las pendientes debajo de los gráficos
+        if capacitaciones_pendientes:
+            st.markdown("### ⏳ Capacitaciones Pendientes (Sin registros)")
+            for cap_pend in capacitaciones_pendientes:
+                st.warning(f"🔹 **{cap_pend}**")
         
         st.divider()
         
-        # Gráfico General de Calidad
+        # 3. GRÁFICO GENERAL DE CALIDAD
         st.subheader("Distribución Total de Calidad de Aplicación")
-        col_vacia1, col_centro, col_vacia2 = st.columns([1, 2, 1]) # Centrar el gráfico
+        col_vacia1, col_centro, col_vacia2 = st.columns([1, 2, 1]) 
         fig_cal_gen = px.pie(
             df_cal_melt[df_cal_melt['Estado'] != 'Sin Evaluar'], 
             names='Estado', 
@@ -137,7 +165,6 @@ if archivo_subido is not None:
         
         with col3:
             st.subheader("Control de Asistencia")
-            # Graficar solo si hay datos reales
             datos_asis_validos_part = datos_asis_part[datos_asis_part['Estado'] != 'Sin Registro']
             if not datos_asis_validos_part.empty:
                 fig_asis_part = px.pie(
@@ -148,7 +175,6 @@ if archivo_subido is not None:
             else:
                 st.info("No hay registros de asistencia para graficar.")
             
-            # Detectar faltas
             faltas = datos_asis_part[datos_asis_part['Estado'] == 'Ausente / Falta']['Capacitación'].tolist()
             st.markdown("**Capacitaciones Ausentes:**")
             if faltas:
@@ -164,24 +190,19 @@ if archivo_subido is not None:
 
     # --- PESTAÑA 3: SEGUIMIENTO SEMANAL (VERDES) ---
     with tab3:
-        st.header("Seguimiento Semanal de Aplicación (Hojas Verdes)")
+        st.header("Seguimiento Semanal de Aplicación")
         if hojas_verdes:
             hoja_verde_sel = st.selectbox("Selecciona la pestaña del participante:", hojas_verdes)
             
-            # Leer la hoja verde seleccionada
             df_verde = xls[hoja_verde_sel].copy()
-            
-            # Asumimos que la primera columna es "SEMANA"
             col_semana = df_verde.columns[0]
             
             st.write(f"**Datos registrados para:** {hoja_verde_sel}")
             st.dataframe(df_verde.dropna(how='all'), use_container_width=True)
             
-            # Transformar para graficar Ok vs Nok
             df_verde_melt = df_verde.melt(id_vars=[col_semana], var_name="Indicador", value_name="Resultado")
             df_verde_melt['Resultado'] = df_verde_melt['Resultado'].astype(str).str.capitalize().str.strip()
             
-            # Filtrar solo los Ok y Nok para el gráfico
             df_grafico_verde = df_verde_melt[df_verde_melt['Resultado'].isin(['Ok', 'Nok'])]
             
             if not df_grafico_verde.empty:
@@ -199,4 +220,4 @@ if archivo_subido is not None:
             else:
                 st.info("No hay suficientes valores 'Ok' o 'Nok' registrados para generar el gráfico semanal.")
         else:
-            st.warning("No se detectaron hojas adicionales (verdes) en el archivo.")
+            st.warning("No se detectaron hojas adicionales en el archivo.")
