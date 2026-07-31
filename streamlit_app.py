@@ -48,17 +48,28 @@ if archivo_subido is not None:
     df_asis_melt = df_asis.melt(id_vars=cols_id_finales_asis, var_name="Capacitación", value_name="Estado")
     df_cal_melt = df_cal.melt(id_vars=cols_id_finales_cal, var_name="Capacitación", value_name="Estado")
     
-    # Limpieza específica para Asistencia (P, A)
-    df_asis_melt['Estado'] = df_asis_melt['Estado'].astype(str).str.upper().str.strip()
-    df_asis_melt['Estado'] = df_asis_melt['Estado'].replace({
-        'P': 'Presente',
-        'A': 'Ausente / Falta',
-        'NAN': 'Sin Registro'
-    })
+    # --- LIMPIEZA ESTRICTA PARA ASISTENCIA ---
+    def normalizar_asistencia(x):
+        # Convertimos a string, mayúsculas y quitamos espacios
+        val = str(x).upper().strip()
+        if val in ['P', 'PRESENTE']:
+            return 'Presente'
+        elif val in ['A', 'AUSENTE', 'FALTA']:
+            return 'Ausente / Falta'
+        else:
+            # Cualquier otra cosa (null, nan, vacío) cae aquí
+            return 'Sin Registro'
+            
+    df_asis_melt['Estado'] = df_asis_melt['Estado'].apply(normalizar_asistencia)
     
-    # Limpieza básica para Calidad
-    df_cal_melt['Estado'] = df_cal_melt['Estado'].astype(str).str.title().str.strip()
-    df_cal_melt['Estado'] = df_cal_melt['Estado'].replace({'Nan': 'Sin evaluar'})
+    # --- LIMPIEZA BÁSICA PARA CALIDAD ---
+    def normalizar_calidad(x):
+        val = str(x).title().strip()
+        if val in ['Nan', 'None', 'Null', '']:
+            return 'Sin Evaluar'
+        return val
+        
+    df_cal_melt['Estado'] = df_cal_melt['Estado'].apply(normalizar_calidad)
 
     st.success("¡Datos procesados correctamente!")
 
@@ -94,9 +105,8 @@ if archivo_subido is not None:
         # 2. GRÁFICOS DETALLADOS POR CAPACITACIÓN + LISTA DE AUSENTES
         st.subheader("Asistencia detallada por Capacitación")
         
-        todas_las_capacitaciones = df_asis_melt['Capacitación'].unique()
+        # Filtramos automáticamente para que SOLO queden las capacitaciones que tienen datos válidos
         capacitaciones_con_datos = df_asis_validos['Capacitación'].unique()
-        capacitaciones_pendientes = [cap for cap in todas_las_capacitaciones if cap not in capacitaciones_con_datos]
         
         cols_torta = st.columns(3)
         
@@ -131,13 +141,6 @@ if archivo_subido is not None:
                             st.write(f"❌ {persona}")
                 else:
                     st.success("✨ Asistencia perfecta")
-            
-        if capacitaciones_pendientes:
-            st.divider()
-            st.markdown("### ⏳ Capacitaciones Pendientes (Sin registros)")
-            for cap_pend in capacitaciones_pendientes:
-                st.warning(f"🔹 **{cap_pend}**")
-                
 
     # --- PESTAÑA 2: VISTA UNIFICADA POR PARTICIPANTE ---
     with tab2:
@@ -159,6 +162,8 @@ if archivo_subido is not None:
         with col3:
             st.subheader("Control de Asistencia")
             datos_asis_validos_part = datos_asis_part[datos_asis_part['Estado'] != 'Sin Registro']
+            
+            # Gráfico de torta (solo muestra Presente o Ausente)
             if not datos_asis_validos_part.empty:
                 fig_asis_part = px.pie(
                     datos_asis_validos_part, names='Estado', title="Asistencias vs Ausencias",
@@ -166,8 +171,9 @@ if archivo_subido is not None:
                 )
                 st.plotly_chart(fig_asis_part, use_container_width=True)
             else:
-                st.info("No hay registros de asistencia para graficar.")
+                st.info("No hay registros de asistencia (Presente/Ausente) para graficar.")
             
+            # Lista de Ausencias
             faltas = datos_asis_part[datos_asis_part['Estado'] == 'Ausente / Falta']['Capacitación'].tolist()
             st.markdown("**Capacitaciones Ausentes:**")
             if faltas:
@@ -176,10 +182,24 @@ if archivo_subido is not None:
             else:
                 st.success("✨ No registra ausencias.")
                 
+            # Lista de Pendientes / Nulos (NUEVO)
+            pendientes = datos_asis_part[datos_asis_part['Estado'] == 'Sin Registro']['Capacitación'].tolist()
+            if pendientes:
+                st.markdown("**Capacitaciones Pendientes (Nulas/Sin Registro):**")
+                for cap in pendientes:
+                    st.warning(f"🔹 {cap}")
+                
         with col4:
             st.subheader("Calidad de Aplicación")
-            tabla_calidad = datos_cal_part[['Capacitación', 'Estado']].reset_index(drop=True)
-            st.dataframe(tabla_calidad, use_container_width=True)
+            
+            # Filtramos para eliminar de los cuadros las capacitaciones que son nulas o "Sin Evaluar"
+            datos_cal_validos = datos_cal_part[datos_cal_part['Estado'] != 'Sin Evaluar']
+            
+            if not datos_cal_validos.empty:
+                tabla_calidad = datos_cal_validos[['Capacitación', 'Estado']].reset_index(drop=True)
+                st.dataframe(tabla_calidad, use_container_width=True)
+            else:
+                st.info("No hay evaluaciones de calidad registradas para este participante.")
 
         st.divider()
 
@@ -187,7 +207,9 @@ if archivo_subido is not None:
         st.subheader("📅 Seguimiento Semanal de Aplicación")
         
         if hojas_verdes:
-            # Buscar coincidencia exacta o contenida (ej: si la pestaña se llama "BAZAN" y el usuario es "PABLO BAZAN")
+            index_sugerido = 0
+            apellido_prob = seleccion_participante.split()[-1].lower()
+            
             hoja_encontrada = None
             for hoja in hojas_verdes:
                 if hoja.lower().strip() in seleccion_participante.lower():
@@ -196,10 +218,9 @@ if archivo_subido is not None:
             
             if hoja_encontrada:
                 df_verde = xls[hoja_encontrada].copy()
-                df_verde = df_verde.dropna(how='all') # Limpiar filas 100% vacías
+                df_verde = df_verde.dropna(how='all')
                 
                 if not df_verde.empty:
-                    # Definir lógica de colores para la tabla
                     def colorear_celdas(val):
                         if pd.isna(val) or str(val).strip() == "":
                             return ""
@@ -207,13 +228,12 @@ if archivo_subido is not None:
                         val_str = str(val).strip().title()
                         
                         if val_str == "Ok":
-                            return "background-color: #00CC96; color: black; font-weight: bold;" # Verde
+                            return "background-color: #00CC96; color: black; font-weight: bold;" 
                         elif val_str == "Nok":
-                            return "background-color: #EF553B; color: white; font-weight: bold;" # Rojo
+                            return "background-color: #EF553B; color: white; font-weight: bold;" 
                         else:
-                            return "background-color: #9C27B0; color: white; font-weight: bold;" # Violeta
+                            return "background-color: #9C27B0; color: white; font-weight: bold;" 
                     
-                    # Coloreamos todas las columnas excepto la primera (asumiendo que es "SEMANA")
                     cols_indicadores = df_verde.columns[1:]
                     
                     try:
@@ -225,6 +245,6 @@ if archivo_subido is not None:
                 else:
                     st.info("La pestaña de este participante está vacía.")
             else:
-                st.warning(f"No se encontró una pestaña de seguimiento semanal (verde) registrada para **{seleccion_participante}**.")
+                st.warning(f"No se encontró una pestaña de seguimiento semanal registrada para **{seleccion_participante}**.")
         else:
             st.warning("No se detectaron hojas adicionales (verdes) en el archivo.")
