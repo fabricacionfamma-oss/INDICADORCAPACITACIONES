@@ -62,21 +62,19 @@ if archivo_subido is not None:
 
     st.success("¡Datos procesados correctamente!")
 
-    # 3. Creación de las Pestañas Visuales
-    tab1, tab2, tab3 = st.tabs([
+    # 3. Creación de las Pestañas Visuales 
+    tab1, tab2 = st.tabs([
         "📈 Resumen General", 
-        "👤 Detalle Asistencia y Calidad", 
-        "📅 Evolución Semanal"
+        "👤 Perfil del Participante (360°)"
     ])
     
     # --- PESTAÑA 1: VISTA GENERAL ---
     with tab1:
         st.header("Resumen Global de Formaciones")
         
-        # Filtramos solo los registros válidos de asistencia general
         df_asis_validos = df_asis_melt[df_asis_melt['Estado'] != 'Sin Registro']
         
-        # 1. GRÁFICO GLOBAL DE ASISTENCIA (Nuevo)
+        # 1. GRÁFICO GLOBAL DE ASISTENCIA
         st.subheader("Asistencia Global (Total de todas las capacitaciones)")
         if not df_asis_validos.empty:
             col_izq, col_cen, col_der = st.columns([1, 2, 1])
@@ -93,20 +91,15 @@ if archivo_subido is not None:
         
         st.divider()
         
-        # 2. GRÁFICOS DETALLADOS POR CAPACITACIÓN
+        # 2. GRÁFICOS DETALLADOS POR CAPACITACIÓN + LISTA DE AUSENTES
         st.subheader("Asistencia detallada por Capacitación")
         
-        # Identificamos TODAS las capacitaciones
         todas_las_capacitaciones = df_asis_melt['Capacitación'].unique()
         capacitaciones_con_datos = df_asis_validos['Capacitación'].unique()
-        
-        # Las que no tienen ningún dato las guardamos en una lista aparte
         capacitaciones_pendientes = [cap for cap in todas_las_capacitaciones if cap not in capacitaciones_con_datos]
         
-        # Creamos 3 columnas para organizar las tortas en forma de grilla
         cols_torta = st.columns(3)
         
-        # Graficamos SOLO las que tienen datos
         for i, cap in enumerate(capacitaciones_con_datos):
             df_cap = df_asis_validos[df_asis_validos['Capacitación'] == cap]
             
@@ -123,41 +116,44 @@ if archivo_subido is not None:
                 showlegend=True, 
                 legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
                 title_x=0.5, 
-                title_font_size=14
+                title_font_size=14,
+                margin=dict(b=0) # Reduce el margen inferior para pegar el texto de ausentes
             )
             
-            cols_torta[i % 3].plotly_chart(fig_torta, use_container_width=True)
+            # Ubicar el gráfico y la lista de ausentes en la misma columna
+            with cols_torta[i % 3]:
+                st.plotly_chart(fig_torta, use_container_width=True)
+                
+                # Identificar ausentes de esta capacitación específica
+                ausentes = df_cap[df_cap['Estado'] == 'Ausente / Falta']['Nombre Completo'].tolist()
+                
+                if ausentes:
+                    with st.expander(f"Ausentes ({len(ausentes)})"):
+                        for persona in ausentes:
+                            st.write(f"❌ {persona}")
+                else:
+                    st.success("✨ Asistencia perfecta")
             
-        # Mostramos las pendientes debajo de los gráficos
         if capacitaciones_pendientes:
+            st.divider()
             st.markdown("### ⏳ Capacitaciones Pendientes (Sin registros)")
             for cap_pend in capacitaciones_pendientes:
                 st.warning(f"🔹 **{cap_pend}**")
-        
-        st.divider()
-        
-        # 3. GRÁFICO GENERAL DE CALIDAD
-        st.subheader("Distribución Total de Calidad de Aplicación")
-        col_vacia1, col_centro, col_vacia2 = st.columns([1, 2, 1]) 
-        fig_cal_gen = px.pie(
-            df_cal_melt[df_cal_melt['Estado'] != 'Sin Evaluar'], 
-            names='Estado', 
-            hole=0.3
-        )
-        col_centro.plotly_chart(fig_cal_gen, use_container_width=True)
+                
 
-    # --- PESTAÑA 2: VISTA POR PARTICIPANTE (ROJAS) ---
+    # --- PESTAÑA 2: VISTA UNIFICADA POR PARTICIPANTE ---
     with tab2:
         participantes = sorted([str(p) for p in df_asis['Nombre Completo'].unique() if str(p).lower() not in ['nan nan', 'nan']])
-        seleccion_participante = st.selectbox("Buscar Empleado (Asistencia/Calidad):", participantes)
+        seleccion_participante = st.selectbox("Buscar Empleado:", participantes)
         
         # Filtramos datos del participante seleccionado
         datos_usuario = df_asis[df_asis['Nombre Completo'] == seleccion_participante].iloc[0]
         
-        st.markdown(f"### Desempeño de: **{seleccion_participante}**")
+        st.markdown(f"### Perfil de: **{seleccion_participante}**")
         st.markdown(f"**Legajo:** {datos_usuario[cols_identificadoras_asis[0]]} | **Área:** {datos_usuario[cols_identificadoras_asis[3]]}")
         st.divider()
         
+        # --- SECCIÓN 1: ASISTENCIA Y CALIDAD (Rojas) ---
         datos_asis_part = df_asis_melt[df_asis_melt['Nombre Completo'] == seleccion_participante]
         datos_cal_part = df_cal_melt[df_cal_melt['Nombre Completo'] == seleccion_participante]
         
@@ -188,36 +184,47 @@ if archivo_subido is not None:
             tabla_calidad = datos_cal_part[['Capacitación', 'Estado']].reset_index(drop=True)
             st.dataframe(tabla_calidad, use_container_width=True)
 
-    # --- PESTAÑA 3: SEGUIMIENTO SEMANAL (VERDES) ---
-    with tab3:
-        st.header("Seguimiento Semanal de Aplicación")
+        st.divider()
+
+        # --- SECCIÓN 2: SEGUIMIENTO SEMANAL (Verdes) ---
+        st.subheader("📅 Seguimiento Semanal de Aplicación")
+        
         if hojas_verdes:
-            hoja_verde_sel = st.selectbox("Selecciona la pestaña del participante:", hojas_verdes)
+            # Inteligencia para autoseleccionar la pestaña correcta basándose en el apellido/nombre
+            index_sugerido = 0
+            apellido_prob = seleccion_participante.split()[-1].lower()
+            
+            for i, hoja in enumerate(hojas_verdes):
+                if apellido_prob in hoja.lower() or hoja.lower() in seleccion_participante.lower():
+                    index_sugerido = i
+                    break
+            
+            hoja_verde_sel = st.selectbox("Pestaña de seguimiento semanal asignada:", hojas_verdes, index=index_sugerido)
             
             df_verde = xls[hoja_verde_sel].copy()
             col_semana = df_verde.columns[0]
             
-            st.write(f"**Datos registrados para:** {hoja_verde_sel}")
-            st.dataframe(df_verde.dropna(how='all'), use_container_width=True)
-            
+            # Transformar para graficar Ok vs Nok
             df_verde_melt = df_verde.melt(id_vars=[col_semana], var_name="Indicador", value_name="Resultado")
             df_verde_melt['Resultado'] = df_verde_melt['Resultado'].astype(str).str.capitalize().str.strip()
             
             df_grafico_verde = df_verde_melt[df_verde_melt['Resultado'].isin(['Ok', 'Nok'])]
             
             if not df_grafico_verde.empty:
-                st.subheader("Evolución de Ok / Nok por Semana")
                 fig_verde = px.histogram(
                     df_grafico_verde, 
                     x=col_semana, 
                     color="Resultado", 
                     barmode="group",
                     color_discrete_map={'Ok': '#00CC96', 'Nok': '#EF553B'},
-                    title="Cantidad de Ok vs Nok a lo largo de las semanas"
+                    title="Evolución de Ok / Nok a lo largo de las semanas"
                 )
                 fig_verde.update_layout(yaxis_title="Cantidad de Indicadores", xaxis_title="Semana")
                 st.plotly_chart(fig_verde, use_container_width=True)
             else:
                 st.info("No hay suficientes valores 'Ok' o 'Nok' registrados para generar el gráfico semanal.")
+                
+            with st.expander("Ver tabla de datos semanal (Click para desplegar)"):
+                st.dataframe(df_verde.dropna(how='all'), use_container_width=True)
         else:
             st.warning("No se detectaron hojas adicionales en el archivo.")
