@@ -183,52 +183,48 @@ if archivo_subido is not None:
 
         st.divider()
 
-        # --- SECCIÓN 2: SEGUIMIENTO SEMANAL (Verdes) - AHORA COMO TABLA COLOREADA ---
+        # --- SECCIÓN 2: SEGUIMIENTO SEMANAL (Verdes) - TABLA AUTOMÁTICA ---
         st.subheader("📅 Seguimiento Semanal de Aplicación")
         
         if hojas_verdes:
-            index_sugerido = 0
-            apellido_prob = seleccion_participante.split()[-1].lower()
-            
-            for i, hoja in enumerate(hojas_verdes):
-                if apellido_prob in hoja.lower() or hoja.lower() in seleccion_participante.lower():
-                    index_sugerido = i
+            # Buscar coincidencia exacta o contenida (ej: si la pestaña se llama "BAZAN" y el usuario es "PABLO BAZAN")
+            hoja_encontrada = None
+            for hoja in hojas_verdes:
+                if hoja.lower().strip() in seleccion_participante.lower():
+                    hoja_encontrada = hoja
                     break
             
-            hoja_verde_sel = st.selectbox("Pestaña de seguimiento semanal asignada:", hojas_verdes, index=index_sugerido)
-            
-            df_verde = xls[hoja_verde_sel].copy()
-            df_verde = df_verde.dropna(how='all') # Limpiar filas 100% vacías
-            
-            if not df_verde.empty:
-                # Definir lógica de colores para la tabla
-                def colorear_celdas(val):
-                    # Si es nulo o vacío, no aplicar color
-                    if pd.isna(val) or str(val).strip() == "":
-                        return ""
+            if hoja_encontrada:
+                df_verde = xls[hoja_encontrada].copy()
+                df_verde = df_verde.dropna(how='all') # Limpiar filas 100% vacías
+                
+                if not df_verde.empty:
+                    # Definir lógica de colores para la tabla
+                    def colorear_celdas(val):
+                        if pd.isna(val) or str(val).strip() == "":
+                            return ""
+                        
+                        val_str = str(val).strip().title()
+                        
+                        if val_str == "Ok":
+                            return "background-color: #00CC96; color: black; font-weight: bold;" # Verde
+                        elif val_str == "Nok":
+                            return "background-color: #EF553B; color: white; font-weight: bold;" # Rojo
+                        else:
+                            return "background-color: #9C27B0; color: white; font-weight: bold;" # Violeta
                     
-                    val_str = str(val).strip().title()
+                    # Coloreamos todas las columnas excepto la primera (asumiendo que es "SEMANA")
+                    cols_indicadores = df_verde.columns[1:]
                     
-                    if val_str == "Ok":
-                        return "background-color: #00CC96; color: black; font-weight: bold;" # Verde
-                    elif val_str == "Nok":
-                        return "background-color: #EF553B; color: white; font-weight: bold;" # Rojo
-                    else:
-                        # Si tiene cualquier otro texto, se pinta de Violeta
-                        return "background-color: #9C27B0; color: white; font-weight: bold;" # Violeta
-                
-                # Obtener todas las columnas excepto la primera (que asumimos es "SEMANA" y no queremos colorearla entera)
-                cols_indicadores = df_verde.columns[1:]
-                
-                # Aplicar el mapa de estilos a las columnas de indicadores
-                # Usamos try/except para compatibilidad con diferentes versiones de Pandas
-                try:
-                    df_estilo = df_verde.style.map(colorear_celdas, subset=cols_indicadores)
-                except AttributeError:
-                    df_estilo = df_verde.style.applymap(colorear_celdas, subset=cols_indicadores)
-                
-                st.dataframe(df_estilo, use_container_width=True)
+                    try:
+                        df_estilo = df_verde.style.map(colorear_celdas, subset=cols_indicadores)
+                    except AttributeError:
+                        df_estilo = df_verde.style.applymap(colorear_celdas, subset=cols_indicadores)
+                    
+                    st.dataframe(df_estilo, use_container_width=True)
+                else:
+                    st.info("La pestaña de este participante está vacía.")
             else:
-                st.info("La pestaña semanal seleccionada no tiene datos para mostrar.")
+                st.warning(f"No se encontró una pestaña de seguimiento semanal (verde) registrada para **{seleccion_participante}**.")
         else:
-            st.warning("No se detectaron hojas adicionales en el archivo.")
+            st.warning("No se detectaron hojas adicionales (verdes) en el archivo.")
