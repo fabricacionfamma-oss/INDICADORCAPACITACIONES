@@ -117,14 +117,12 @@ if archivo_subido is not None:
                 legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
                 title_x=0.5, 
                 title_font_size=14,
-                margin=dict(b=0) # Reduce el margen inferior para pegar el texto de ausentes
+                margin=dict(b=0) 
             )
             
-            # Ubicar el gráfico y la lista de ausentes en la misma columna
             with cols_torta[i % 3]:
                 st.plotly_chart(fig_torta, use_container_width=True)
                 
-                # Identificar ausentes de esta capacitación específica
                 ausentes = df_cap[df_cap['Estado'] == 'Ausente / Falta']['Nombre Completo'].tolist()
                 
                 if ausentes:
@@ -146,7 +144,6 @@ if archivo_subido is not None:
         participantes = sorted([str(p) for p in df_asis['Nombre Completo'].unique() if str(p).lower() not in ['nan nan', 'nan']])
         seleccion_participante = st.selectbox("Buscar Empleado:", participantes)
         
-        # Filtramos datos del participante seleccionado
         datos_usuario = df_asis[df_asis['Nombre Completo'] == seleccion_participante].iloc[0]
         
         st.markdown(f"### Perfil de: **{seleccion_participante}**")
@@ -186,11 +183,10 @@ if archivo_subido is not None:
 
         st.divider()
 
-        # --- SECCIÓN 2: SEGUIMIENTO SEMANAL (Verdes) ---
+        # --- SECCIÓN 2: SEGUIMIENTO SEMANAL (Verdes) - AHORA COMO TABLA COLOREADA ---
         st.subheader("📅 Seguimiento Semanal de Aplicación")
         
         if hojas_verdes:
-            # Inteligencia para autoseleccionar la pestaña correcta basándose en el apellido/nombre
             index_sugerido = 0
             apellido_prob = seleccion_participante.split()[-1].lower()
             
@@ -202,29 +198,37 @@ if archivo_subido is not None:
             hoja_verde_sel = st.selectbox("Pestaña de seguimiento semanal asignada:", hojas_verdes, index=index_sugerido)
             
             df_verde = xls[hoja_verde_sel].copy()
-            col_semana = df_verde.columns[0]
+            df_verde = df_verde.dropna(how='all') # Limpiar filas 100% vacías
             
-            # Transformar para graficar Ok vs Nok
-            df_verde_melt = df_verde.melt(id_vars=[col_semana], var_name="Indicador", value_name="Resultado")
-            df_verde_melt['Resultado'] = df_verde_melt['Resultado'].astype(str).str.capitalize().str.strip()
-            
-            df_grafico_verde = df_verde_melt[df_verde_melt['Resultado'].isin(['Ok', 'Nok'])]
-            
-            if not df_grafico_verde.empty:
-                fig_verde = px.histogram(
-                    df_grafico_verde, 
-                    x=col_semana, 
-                    color="Resultado", 
-                    barmode="group",
-                    color_discrete_map={'Ok': '#00CC96', 'Nok': '#EF553B'},
-                    title="Evolución de Ok / Nok a lo largo de las semanas"
-                )
-                fig_verde.update_layout(yaxis_title="Cantidad de Indicadores", xaxis_title="Semana")
-                st.plotly_chart(fig_verde, use_container_width=True)
-            else:
-                st.info("No hay suficientes valores 'Ok' o 'Nok' registrados para generar el gráfico semanal.")
+            if not df_verde.empty:
+                # Definir lógica de colores para la tabla
+                def colorear_celdas(val):
+                    # Si es nulo o vacío, no aplicar color
+                    if pd.isna(val) or str(val).strip() == "":
+                        return ""
+                    
+                    val_str = str(val).strip().title()
+                    
+                    if val_str == "Ok":
+                        return "background-color: #00CC96; color: black; font-weight: bold;" # Verde
+                    elif val_str == "Nok":
+                        return "background-color: #EF553B; color: white; font-weight: bold;" # Rojo
+                    else:
+                        # Si tiene cualquier otro texto, se pinta de Violeta
+                        return "background-color: #9C27B0; color: white; font-weight: bold;" # Violeta
                 
-            with st.expander("Ver tabla de datos semanal (Click para desplegar)"):
-                st.dataframe(df_verde.dropna(how='all'), use_container_width=True)
+                # Obtener todas las columnas excepto la primera (que asumimos es "SEMANA" y no queremos colorearla entera)
+                cols_indicadores = df_verde.columns[1:]
+                
+                # Aplicar el mapa de estilos a las columnas de indicadores
+                # Usamos try/except para compatibilidad con diferentes versiones de Pandas
+                try:
+                    df_estilo = df_verde.style.map(colorear_celdas, subset=cols_indicadores)
+                except AttributeError:
+                    df_estilo = df_verde.style.applymap(colorear_celdas, subset=cols_indicadores)
+                
+                st.dataframe(df_estilo, use_container_width=True)
+            else:
+                st.info("La pestaña semanal seleccionada no tiene datos para mostrar.")
         else:
             st.warning("No se detectaron hojas adicionales en el archivo.")
