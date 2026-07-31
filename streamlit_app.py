@@ -72,25 +72,51 @@ if archivo_subido is not None:
     # --- PESTAÑA 1: VISTA GENERAL ---
     with tab1:
         st.header("Resumen Global de Formaciones")
-        col1, col2 = st.columns(2)
         
-        fig_asis_gen = px.pie(
-            df_asis_melt[df_asis_melt['Estado'] != 'Sin Registro'], 
-            names='Estado', 
-            title="Porcentaje Total de Asistencia",
-            hole=0.3,
-            color='Estado',
-            color_discrete_map={'Presente': '#00CC96', 'Ausente / Falta': '#EF553B'}
-        )
-        col1.plotly_chart(fig_asis_gen, use_container_width=True)
+        # --- Modificación: Gráficos de torta por cada capacitación ---
+        st.subheader("Asistencia detallada por Capacitación")
+        df_asis_validos = df_asis_melt[df_asis_melt['Estado'] != 'Sin Registro']
+        lista_capacitaciones = df_asis_validos['Capacitación'].unique()
         
+        # Creamos 3 columnas para organizar las tortas en forma de grilla
+        cols_torta = st.columns(3)
+        
+        for i, cap in enumerate(lista_capacitaciones):
+            df_cap = df_asis_validos[df_asis_validos['Capacitación'] == cap]
+            
+            # Graficar solo si hay datos para esa capacitación
+            if not df_cap.empty:
+                fig_torta = px.pie(
+                    df_cap, 
+                    names='Estado', 
+                    title=f"Asistencia: {cap}",
+                    hole=0.3,
+                    color='Estado',
+                    color_discrete_map={'Presente': '#00CC96', 'Ausente / Falta': '#EF553B'}
+                )
+                
+                # Ajustar el diseño para que se vea limpio en tamaño pequeño
+                fig_torta.update_layout(
+                    showlegend=True, 
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                    title_x=0.5, 
+                    title_font_size=14
+                )
+                
+                # Asignar cada gráfico a una columna en secuencia
+                cols_torta[i % 3].plotly_chart(fig_torta, use_container_width=True)
+        
+        st.divider()
+        
+        # Gráfico General de Calidad
+        st.subheader("Distribución Total de Calidad de Aplicación")
+        col_vacia1, col_centro, col_vacia2 = st.columns([1, 2, 1]) # Centrar el gráfico
         fig_cal_gen = px.pie(
             df_cal_melt[df_cal_melt['Estado'] != 'Sin Evaluar'], 
             names='Estado', 
-            title="Distribución Total de Calidad",
             hole=0.3
         )
-        col2.plotly_chart(fig_cal_gen, use_container_width=True)
+        col_centro.plotly_chart(fig_cal_gen, use_container_width=True)
 
     # --- PESTAÑA 2: VISTA POR PARTICIPANTE (ROJAS) ---
     with tab2:
@@ -111,11 +137,11 @@ if archivo_subido is not None:
         
         with col3:
             st.subheader("Control de Asistencia")
-            # Graficar solo si hay datos reales (excluyendo vacíos masivos)
-            datos_asis_validos = datos_asis_part[datos_asis_part['Estado'] != 'Sin Registro']
-            if not datos_asis_validos.empty:
+            # Graficar solo si hay datos reales
+            datos_asis_validos_part = datos_asis_part[datos_asis_part['Estado'] != 'Sin Registro']
+            if not datos_asis_validos_part.empty:
                 fig_asis_part = px.pie(
-                    datos_asis_validos, names='Estado', title="Asistencias vs Ausencias",
+                    datos_asis_validos_part, names='Estado', title="Asistencias vs Ausencias",
                     color='Estado', color_discrete_map={'Presente': '#00CC96', 'Ausente / Falta': '#EF553B'}
                 )
                 st.plotly_chart(fig_asis_part, use_container_width=True)
@@ -149,7 +175,7 @@ if archivo_subido is not None:
             col_semana = df_verde.columns[0]
             
             st.write(f"**Datos registrados para:** {hoja_verde_sel}")
-            st.dataframe(df_verde.dropna(how='all'), use_container_width=True) # Muestra tabla original sin filas 100% vacías
+            st.dataframe(df_verde.dropna(how='all'), use_container_width=True)
             
             # Transformar para graficar Ok vs Nok
             df_verde_melt = df_verde.melt(id_vars=[col_semana], var_name="Indicador", value_name="Resultado")
